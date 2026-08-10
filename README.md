@@ -126,11 +126,49 @@ Generates predictions with beam search (4 beams) and reports EM, F1, and BERTSco
 
 **Training** (RTX 4070, effective batch size 16):
 
-_Not yet run._
+| Epoch | Eval loss | Time |
+|-------|-----------|------|
+| 1 | 0.7784 | 61.6 min |
+| 2 | 0.6870 | 61.9 min |
+| 3 | 0.6535 | 61.6 min |
 
-**Evaluation:**
+Total training runtime 3h05m at 18.5 samples/sec. Eval loss was still improving at epoch 3, so a longer run may gain further.
 
-_Not yet run._
+**Evaluation** (BERTScore-F1 uses `bert-base-multilingual-cased`, unrescaled, max over gold references):
+
+| Split | EM | F1 | BERTScore-F1 | N |
+|-------|-----|-----|--------------|-------|
+| Validation | 39.97 | 56.24 | 87.07 | 1,251 |
+| Test | 38.10 | 54.22 | 86.76 | 1,252 |
+
+> **Finding:** swapping T5-base for mT5-base — same architecture, same input format, same data, same trainer — moves the score from **EM 0.00 / F1 0.00** to **EM 38.10 / F1 54.22** on test. The only thing that changed is vocabulary coverage of Bangla script. This confirms the T5-base result was a tokenizer failure rather than an architectural one.
+>
+> Note that T5-base reached a *lower* eval loss (0.366) than mT5-base (0.654) while scoring zero. Teacher-forced loss over degenerate all-`<unk>` targets is trivially minimized, so eval loss is not on its own evidence that a model works — generation-time metrics are required.
+>
+> mT5-base nonetheless finishes last among the models that can represent Bangla at all, despite being the largest:
+>
+> | Model | Test EM | Test F1 | BERTScore-F1 | Params |
+> |-------|---------|---------|--------------|--------|
+> | [BanglaT5](https://github.com/RobinDoughnut/bangla-qa-banglat5) | 53.19 | 67.90 | 91.10 | 248M |
+> | [mBERT](https://github.com/RobinDoughnut/mbert-finetune-banglaSQUAD) | 52.24 | 65.87 | 90.18 | 178M |
+> | **mT5-base** (this repo) | **38.10** | **54.22** | **86.76** | **582M** |
+> | [T5-base](https://github.com/RobinDoughnut/bangla-t5-finetune-qa) | 0.00 | 0.00 | 1.65 | 223M |
+>
+> **This result should be treated as provisional.** Eval loss was still falling at epoch 3 (0.778 → 0.687 → 0.654) with no sign of overfitting, so 3 epochs likely under-trains mT5-base — its 250k-token embedding matrix has far more parameters to adapt than the other models, on the same 68,674 examples. The honest claim here is that mT5 clears the coverage threshold, not that it is settled as the weakest architecture. A longer run is needed before treating the gap to mBERT as real.
+
+## Limitations
+
+**Single run, no variance estimate.** Every number here comes from one training run at one seed. None of these repos report variance across seeds, so small gaps between models cannot be distinguished from run-to-run noise. This matters specifically for BanglaT5 (53.19 EM) vs mBERT (52.24 EM): a 0.95-point gap on 1,252 test examples is roughly 12 questions, and should not be read as a reliable ordering. The gap from either of those to mT5-base (38.10) is large enough to survive that objection; the gap between the two leaders is not.
+
+**Epoch budget is not tuned per model.** All four experiments use 3 epochs, which favours models that converge quickly. mBERT had already begun overfitting by epoch 3 (its eval loss rose from 1.359 to 1.503), while mT5's was still falling. A fixed budget is a defensible controlled choice, but it is not the same as comparing each model at its own best configuration, and the results should not be described as "best achievable" for any of them.
+
+**Dataset: `answer_start` offsets are unreliable in the eval splits.** In `csebuetnlp/squad_bn`, 167/1,251 validation answers (13.3%) and 181/1,332 test answers (13.6%) have an `answer_start` that does not land on the gold text — the pointer is 1–5 characters too large, most often by exactly 1. The gold **text** is intact in nearly all cases, and the `train` split is completely clean (0/78,328), so:
+
+- Training is unaffected — span-extraction targets are built from the clean train split.
+- The metrics reported here are unaffected — EM/F1/BERTScore compare against `answers["text"]`, never `answer_start`.
+- Only 2 test examples (0.15%) have gold text that is itself clipped (`'৮৬২'` where the context reads `'১৮৬২'`), capping the distortion at roughly 0.16 EM.
+
+The issue is documented because anyone reusing these splits for span-extraction *evaluation* — where predictions are scored against character offsets rather than text — would be materially affected, whereas this comparison is not.
 
 ## Project Structure
 
