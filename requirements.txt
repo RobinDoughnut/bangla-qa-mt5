@@ -1,0 +1,8 @@
+transformers>=4.40
+datasets>=2.18,<3.0
+accelerate>=0.30
+sentencepiece>=0.1.99
+protobuf  # required to convert mT5's spiece.model; without it transformers>=5 misroutes to the tiktoken converter
+bert-score>=0.3.13
+numpy
+tqdm
